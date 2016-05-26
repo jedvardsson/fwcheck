@@ -81,7 +81,7 @@ set +e
 if [[ $source_host != 'localhost' ]]; then
     status=126
     if type ssh 1>/dev/null 2>1; then
-        ssh $source_host "$nc_cmd"
+        ssh -n $source_host "$nc_cmd"
         status=$?
     fi
 else
