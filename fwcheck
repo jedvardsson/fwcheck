@@ -1,0 +1,92 @@
+#!/bin/bash
+set -e
+
+PROG=$(basename $0)
+
+showhelp() {
+cat <<EOF
+Wrapper around ssh and netcat to check connectivity.
+
+Usage: $PROG [options] [<source_host>[:<source_port>]] <dest_host>:<dest_port>
+    -h|--help           show help.
+
+
+source_host     If set, the host from where the port scan is performed.
+                Must be SSH reachable. If unset check is performed without SSH
+                on localhost.
+
+source_port     The source port of the connection test. Defaults to any port.
+
+dest_host       The destination host of the connection test.
+
+dest_port       The destination port of the connection test.
+
+Examples:
+    $PROG 10.219.27.1 www.example.com:443
+EOF
+    exit;
+}
+
+for i
+do
+    case $1 in
+        -h|--help) showhelp; exit 0;;
+        -*) echo "Unknown option: $1" >&2; exit 1;;
+        *) break;;
+    esac
+done
+
+source_host='localhost'
+
+if [[ $# == 2 ]]; then
+    IFS=':' read source_host source_port <<<"$1"
+    shift
+fi
+
+if [[ $# == 1 ]]; then
+    IFS=':' read dest_host dest_port <<<"$1"
+    shift
+fi
+
+if [[ $# != 0 ]]; then
+    echo "Unknown arguments: $*" >&2
+    exit 1
+fi
+
+if [[ "$dest_port" == '' ]]; then
+    echo "Missing destination port." >&2
+    exit 1
+fi
+
+nc_opts="-z -w 1"
+
+if nc -h 2>&1 |grep -q -- '-G\b'; then
+    nc_opts="$nc_opts -G 1" # Connection timeout BSD
+fi
+
+if [[ "$source_port" != '' ]]; then
+    nc_opts="$nc_opts -p $source_port"
+fi
+
+source="$source_host:$source_port"
+source="${source%:}" # remove trailing colon if no source_port
+dest="$dest_host:$dest_port"
+
+nc_cmd="timeout 3 nc -z $dest_host $dest_port 1>/dev/null 2>&1"
+set +e
+
+if [[ $source_host != 'localhost' ]]; then
+    ssh $source_host "$nc_cmd"
+    status=$?
+else
+    bash <<< "$nc_cmd"
+    status=$?
+fi
+set -e
+
+case $status in
+    124) echo "Connection from $source to $dest FAILED!"; exit 1;;
+    0) echo "Connection from $source to $dest OK! (open port)";;
+    1) echo "Connection from $source to $dest OK! (closed port)";;
+    *) echo "Connection from $source to $dest UNKNOWN: $status!";;
+esac
