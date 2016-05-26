@@ -72,12 +72,18 @@ source="$source_host:$source_port"
 source="${source%:}" # remove trailing colon if no source_port
 dest="$dest_host:$dest_port"
 
-nc_cmd="timeout 3 nc -z $dest_host $dest_port 1>/dev/null 2>&1"
+nc_cmd="
+type nc 1>/dev/null 2>1 || exit 125
+timeout 3 nc -z $dest_host $dest_port 1>/dev/null 2>&1
+"
 set +e
 
 if [[ $source_host != 'localhost' ]]; then
-    ssh $source_host "$nc_cmd"
-    status=$?
+    status=126
+    if type ssh 1>/dev/null 2>1; then
+        ssh $source_host "$nc_cmd"
+        status=$?
+    fi
 else
     bash <<< "$nc_cmd"
     status=$?
@@ -85,8 +91,11 @@ fi
 set -e
 
 case $status in
-    124) echo "Connection from $source to $dest FAILED!"; exit 1;;
+    124) echo "Connection from $source to $dest FAILED!";;
+    125) echo "nc (netcat) not installed!";;
+    126) echo "ssh not installed!";;
     0) echo "Connection from $source to $dest OK! (open port)";;
-    1) echo "Connection from $source to $dest OK! (closed port)";;
-    *) echo "Connection from $source to $dest UNKNOWN: $status!";;
+    1) echo "Connection from $source to $dest OK! (closed port)"; status=0;;
+    *) echo "Connection from $source to $dest UNKNOWN: $status!";
 esac
+exit $status
