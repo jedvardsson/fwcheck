@@ -73,6 +73,7 @@ source="${source%:}" # remove trailing colon if no source_port
 dest="$dest_host:$dest_port"
 
 nc_cmd="
+host $dest_host 1>/dev/null 2>1 || exit 123
 type nc 1>/dev/null 2>1 || exit 125
 timeout 3 nc -z $dest_host $dest_port 1>/dev/null 2>&1
 "
@@ -91,7 +92,8 @@ fi
 set -e
 
 case $status in
-    124) echo "Connection from $source to $dest FAILED!";;
+    123) echo "Connection from $source to $dest FAILED! (destination not found)";;
+    124) echo "Connection from $source to $dest FAILED! (timeout)";;
     125) echo "nc (netcat) not installed!";;
     126) echo "ssh not installed!";;
     0) echo "Connection from $source to $dest OK! (open port)";;
