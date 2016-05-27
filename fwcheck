@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 PROG=$(basename $0)
@@ -58,46 +58,58 @@ if [[ "$dest_port" == '' ]]; then
     exit 1
 fi
 
-nc_opts="-z -w 1"
-
-if nc -h 2>&1 |grep -q -- '-G\b'; then
-    nc_opts="$nc_opts -G 1" # Connection timeout BSD
-fi
-
-if [[ "$source_port" != '' ]]; then
-    nc_opts="$nc_opts -p $source_port"
-fi
-
 source="$source_host:$source_port"
 source="${source%:}" # remove trailing colon if no source_port
 dest="$dest_host:$dest_port"
 
-nc_cmd="
-host $dest_host 1>/dev/null 2>1 || exit 123
-type nc 1>/dev/null 2>1 || exit 125
-timeout 3 nc -z $dest_host $dest_port 1>/dev/null 2>&1
-"
-set +e
+define() { IFS='\n' read -r -d '' ${1} || true; }
 
+
+
+define nc_cmd <<EOF
+function require_installed() {
+    if ! type \$1 1>/dev/null 2>&1; then
+        echo "$source_host: missing command: \$1" >&2
+        exit 100
+    fi
+}
+
+require_installed host
+if ! host $dest_host 1>/dev/null 2>&1; then
+    echo "[FAILED] $source -> $dest (unknown destination host)"
+    exit 101
+fi
+
+require_installed timeout
+require_installed nc
+nc_args='-z'
+if [[ "$source_port" != '' ]]; then
+    nc_args="\$nc_args -p \$source_port"
+fi
+timeout 1 nc "\$nc_args" $dest_host $dest_port 1>/dev/null 2>&1
+status=\$?
+case \$status in
+    124) echo "[FAILED] $source -> $dest (timeout)";;
+    0)   echo "[OK]     $source -> $dest (open port)";;
+    1)   echo "[OK]     $source -> $dest (closed port)"; status=0;;
+    *)   echo "[FAILED] $source -> $dest (unknown status: $status)";;
+esac
+exit $status
+EOF
+
+set +e
 if [[ $source_host != 'localhost' ]]; then
     status=126
-    if type ssh 1>/dev/null 2>1; then
-        ssh -n $source_host "$nc_cmd"
-        status=$?
+    if !type ssh 1>/dev/null 2>&1; then
+        echo "missing command: ssh" >&2
+        exit 1
     fi
+    ssh -n $source_host "$nc_cmd"
+    status=$?
 else
     bash <<< "$nc_cmd"
     status=$?
 fi
 set -e
 
-case $status in
-    123) echo "Connection from $source to $dest FAILED! (destination not found)";;
-    124) echo "Connection from $source to $dest FAILED! (timeout)";;
-    125) echo "nc (netcat) not installed!";;
-    126) echo "ssh not installed!";;
-    0) echo "Connection from $source to $dest OK! (open port)";;
-    1) echo "Connection from $source to $dest OK! (closed port)"; status=0;;
-    *) echo "Connection from $source to $dest UNKNOWN: $status!";
-esac
 exit $status
